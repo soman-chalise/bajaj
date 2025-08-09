@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+python-multipart
+aiofiles
+google-generativeai
+pinecone
+pypdf2
+python-docx
+python-dotenv
