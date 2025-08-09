@@ -70,17 +70,45 @@ def embed_texts(texts):
     return embeddings
 
 # --- Query Pinecone ---
-def query_pinecone(question, top_k=3):
+def query_pinecone(question, top_k=5):
     emb = genai.embed_content(model="models/embedding-001", content=question)["embedding"]
     res = index.query(vector=emb, top_k=top_k, include_metadata=True)
     return [match["metadata"]["text"] for match in res["matches"]]
 
 # --- Ask Gemini ---
 def ask_gemini(context_chunks, question):
-    prompt = f"Answer the question using only the context below.\n\nContext:\n{''.join(context_chunks)}\n\nQuestion: {question}"
+    prompt = f"""
+You are an insurance policy QA assistant.
+
+Rules:
+1. Use ONLY the context provided to answer the question.
+2. Give a **complete sentence** in formal style, as if from the policy wording.
+3. Do NOT include the question in your answer.
+4. If something is not covered, say exactly "Not covered" or the explicit exclusion wording.
+5. If the answer is not found in the context, say "Not found".
+6. Ensure numbers, dates, and limits are stated exactly as in the policy.
+
+Example:
+Context:
+Policy: Cataract surgery has a waiting period of two (2) years.
+Question: What is the waiting period for cataract surgery?
+Answer: The policy has a specific waiting period of two (2) years for cataract surgery.
+
+Context:
+Policy: Maternity expenses are excluded from coverage.
+Question: Does this policy cover maternity expenses?
+Answer: Not covered
+
+Now, use the following context to answer:
+Context:
+{''.join(context_chunks)}
+
+Question: {question}
+Answer:
+"""
     model = genai.GenerativeModel("gemini-2.5-pro")
     resp = model.generate_content(prompt)
-    return resp.text.strip()
+    return resp.text.strip().split("\n")[0]  # first line only
 
 # --- HackRx Run endpoint ---
 @app.post("/hackrx/run")
@@ -102,11 +130,11 @@ async def hackrx_run(payload: HackRxRequest):
     embeddings = embed_texts(chunks)
     index.upsert(vectors=embeddings)
 
-    # 4. Answer questions
+    # 4. Answer questions (return array of strings only)
     answers = []
     for q in payload.questions:
-        context = query_pinecone(q)
+        context = query_pinecone(q, top_k=5)
         answer = ask_gemini(context, q)
-        answers.append({"question": q, "answer": answer})
+        answers.append(answer)
 
     return {"answers": answers}
